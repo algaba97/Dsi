@@ -3,6 +3,7 @@
 #pragma comment(lib, "d2d1")
 #include "winuser.h"
 #include <vector>
+#include <windowsx.h>
 using namespace std;
 
 
@@ -63,6 +64,7 @@ float PixelsToDipsY(T y)
 	return static_cast<float>(y) / g_DPIScaleY;
 }
 enum class ClockMode {Run,Stop};
+enum class Mode { SelectMode, DrawMode, DragMode };
 class MainWindow : public BaseWindow<MainWindow>
 {
 	ID2D1Factory            *pFactory;
@@ -75,7 +77,8 @@ class MainWindow : public BaseWindow<MainWindow>
 	D2D1_POINT_2F           ptMouse;
 	 D2D1_COLOR_F colorNuevo;
 	 ClockMode reloj = ClockMode::Run;
-	
+	 SYSTEMTIME time;
+	 Mode modo = Mode::SelectMode;
 
 
 	void    CalculateLayout();
@@ -136,8 +139,7 @@ void MainWindow::RenderScene()
 	pRenderTarget->FillEllipse(ellipse2, pBrush2);
 	pRenderTarget->DrawEllipse(ellipse2, pBrush2);
 	// Draw hands
-	SYSTEMTIME time;
-	GetLocalTime(&time);
+	
 
 	// 60 minutes = 30 degrees, 1 minute = 0.5 degree
 	const float fHourAngle = (360.0f / 12) * (time.wHour) + (time.wMinute * 0.5f);
@@ -240,14 +242,25 @@ void MainWindow::OnMouseMove(int pixelX, int pixelY, DWORD flags)
 	{
 		const D2D1_POINT_2F dips = DPIScale::PixelsToDips(pixelX, pixelY);
 
-		const float width = (dips.x - ptMouse.x) / 2;
-		const float height = (dips.y - ptMouse.y) / 2;
-		const float x1 = ptMouse.x + width;
-		const float y1 = ptMouse.y + height;
+		const float width = (dips.x - ptMouse.x) ;
+		const float height = (dips.y - ptMouse.y) ;
+		const float x1 = ptMouse.x + width/2;
+		const float y1 = ptMouse.y + height/2;
 
-		ellipse2 = D2D1::Ellipse(D2D1::Point2F(x1, y1), width, height);
 
-		InvalidateRect(m_hwnd, NULL, FALSE);
+
+		if (modo == Mode::DrawMode){
+			ellipse2 = D2D1::Ellipse(D2D1::Point2F(x1, y1), width, height);
+
+			InvalidateRect(m_hwnd, NULL, FALSE);
+		}
+		if (modo == Mode::DragMode)
+		{
+			ellipse2.point.x+=  (float)width;
+			ellipse2.point.y+= (float)height;
+			ptMouse = dips;
+			InvalidateRect(m_hwnd, NULL, FALSE);
+		}
 	}
 }
 
@@ -296,13 +309,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
 LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	int GET_X_LPARAM(
-		LPARAM lParam
-		);
-
-	int GET_Y_LPARAM(
-		LPARAM lParam
-		);
+	
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
@@ -325,6 +332,7 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		KillTimer(m_hwnd, 0);
 		return 0;
 	case WM_CREATE:
+		GetLocalTime(&time);
 		if (FAILED(D2D1CreateFactory(
 			D2D1_FACTORY_TYPE_SINGLE_THREADED, &pFactory)))
 		{
@@ -343,25 +351,49 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	case WM_PAINT:
 	{
+		
 		OnPaint();
+	
 		return 0;
 	}
 	case WM_SIZE:
 		Resize();
 		return 0;
 	case WM_TIMER: // process the 1-second timer
-		if(reloj == ClockMode::Run)PostMessage(m_hwnd, WM_PAINT, NULL, NULL);
+		if (reloj == ClockMode::Run)GetLocalTime(&time);
+		PostMessage(m_hwnd, WM_PAINT, NULL, NULL);
 		return 0;
 
 	case WM_LBUTTONDOWN:
-		OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), (DWORD)wParam);
+		if (modo == Mode::SelectMode){
+			if (!HitTest(ellipse2, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))	modo = Mode::DrawMode;
+			else modo = Mode::DragMode;
+			
+			OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), (DWORD)wParam);
+		}
+		else if (modo == Mode::DragMode){
+			ptMouse.x = GET_X_LPARAM(lParam);
+			ptMouse.y = GET_Y_LPARAM(lParam);
+		}
+
+		
 		return 0;
 
 	case WM_LBUTTONUP:
+		modo = Mode::SelectMode;
 		OnLButtonUp();
 		return 0;
 
 	case WM_MOUSEMOVE:
+		if (modo == Mode::SelectMode){
+			if (HitTest(ellipse2, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))){
+				SetCursor(LoadCursor(NULL, IDC_HAND));
+				modo = Mode::DragMode;
+			}
+			else SetCursor(LoadCursor(NULL, IDC_ARROW));
+		}
+		else if (modo == Mode::DrawMode)SetCursor(LoadCursor(NULL, IDC_CROSS));
+		
 		OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), (DWORD)wParam);
 		return 0;
 	
