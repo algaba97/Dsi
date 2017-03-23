@@ -2,6 +2,8 @@
 #include <d2d1.h>
 #pragma comment(lib, "d2d1")
 #include "winuser.h"
+#include <vector>
+using namespace std;
 
 
 template <class T> void SafeRelease(T **ppT)
@@ -60,7 +62,7 @@ float PixelsToDipsY(T y)
 {
 	return static_cast<float>(y) / g_DPIScaleY;
 }
-
+enum class ClockMode {Run,Stop};
 class MainWindow : public BaseWindow<MainWindow>
 {
 	ID2D1Factory            *pFactory;
@@ -72,7 +74,9 @@ class MainWindow : public BaseWindow<MainWindow>
 	D2D1_ELLIPSE            ellipse2;
 	D2D1_POINT_2F           ptMouse;
 	 D2D1_COLOR_F colorNuevo;
+	 ClockMode reloj = ClockMode::Run;
 	
+
 
 	void    CalculateLayout();
 	void    OnLButtonDown(int pixelX, int pixelY, DWORD flags);
@@ -84,6 +88,15 @@ class MainWindow : public BaseWindow<MainWindow>
 	void    Resize();
 	void    RenderScene();
 	void    DrawClockHand(float fHandLength, float fAngle, float fStrokeWidth);
+	bool HitTest(D2D1_ELLIPSE ellipseconsulta,float x, float y)
+	{
+		const float a = ellipseconsulta.radiusX;
+		const float b =ellipseconsulta.radiusY;
+		const float x1 = x - ellipseconsulta.point.x;
+		const float y1 = y - ellipseconsulta.point.y;
+		const float d = ((x1 * x1) / (a * a)) + ((y1 * y1) / (b * b));
+		return d <= 1.0f;
+	}
 public:
 	MainWindow() : pFactory(NULL), pRenderTarget(NULL), pBrush(NULL), pBrush2(NULL), ellipse(D2D1::Ellipse(D2D1::Point2F(), 0, 0)), ellipse2(D2D1::Ellipse(D2D1::Point2F(), 0, 0)), ptMouse(D2D1::Point2F())
 		
@@ -296,10 +309,20 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	switch (uMsg)
 	{
+	case WM_KEYDOWN:
+		if (wParam == ' ') {
+			if (reloj == ClockMode::Run)reloj = ClockMode::Stop;
+			else reloj = ClockMode::Run;
+		}
+		if (wParam == 27) {
+			HandleMessage(WM_DESTROY, wParam, lParam);
+		}
+		return 0;
 	case WM_DESTROY:
 		DiscardGraphicsResources();
 		SafeRelease(&pFactory);
 		PostQuitMessage(0);
+		KillTimer(m_hwnd, 0);
 		return 0;
 	case WM_CREATE:
 		if (FAILED(D2D1CreateFactory(
@@ -327,7 +350,7 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		Resize();
 		return 0;
 	case WM_TIMER: // process the 1-second timer
-		PostMessage(m_hwnd, WM_PAINT, NULL, NULL);
+		if(reloj == ClockMode::Run)PostMessage(m_hwnd, WM_PAINT, NULL, NULL);
 		return 0;
 
 	case WM_LBUTTONDOWN:
